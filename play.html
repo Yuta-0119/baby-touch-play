@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<!-- 検索エンジンにインデックスさせない設定 -->
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta name="googlebot" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>あかちゃんタッチあそび</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #ffe4f0;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  #stage { display: block; width: 100vw; height: 100vh; }
+
+  #hint {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: "Hiragino Maru Gothic ProN", "Rounded Mplus 1c", sans-serif;
+    font-size: clamp(22px, 6vw, 42px);
+    font-weight: bold;
+    color: #ff5a9e;
+    text-shadow: 0 2px 0 #fff, 0 0 20px #fff;
+    text-align: center;
+    line-height: 1.6;
+    pointer-events: none;
+    animation: breathe 2s ease-in-out infinite;
+    transition: opacity 0.8s ease;
+    z-index: 10;
+  }
+  @keyframes breathe {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50%      { transform: translate(-50%, -50%) scale(1.08); }
+  }
+  @media (prefers-reduced-motion: reduce) { #hint { animation: none; } }
+
+  .tool {
+    position: fixed;
+    bottom: 10px;
+    font-family: sans-serif;
+    font-size: 20px;
+    width: 44px; height: 44px;
+    border: none; border-radius: 50%;
+    background: rgba(255,255,255,0.45);
+    color: #c14b86;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tool:focus-visible { outline: 3px solid #ff5a9e; outline-offset: 2px; }
+  #fsBtn   { right: 10px; }
+  #muteBtn { left: 10px; }
+</style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div id="hint">がめんを<br>タッチしてね ✨</div>
+  <button id="fsBtn"   class="tool" aria-label="ぜんめんひょうじ">⛶</button>
+  <button id="muteBtn" class="tool" aria-label="おとのオンオフ">🔊</button>
+
+<script>
+(() => {
+  "use strict";
+
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0, DPR = 1;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width  = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const rnd = (a = 1, b) => (b === undefined) ? Math.random() * a : a + Math.random() * (b - a);
+  const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+  const TAU = Math.PI * 2;
+
+  const COLORS = ['#FF6B9D','#FFC145','#FF8FB1','#4ECDC4','#7B68EE',
+                  '#FFD93D','#6BCB77','#A66DD4','#5DA9E9','#FF9F68'];
+  const EMOJIS = ['⭐','🌟','✨','💖','🎈','🌸','🦋','🌈','🍭','🐰',
+                  '🐣','🌼','💫','🎀','🐥','🍓','🌷','🐻','🍀','🎵'];
+
+  let audioCtx = null, master = null, muted = false;
+  const SCALE = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50];
+
+  function initAudio() {
+    if (audioCtx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
+    master = audioCtx.createGain();
+    master.gain.value = 0.28;
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 3800;
+    master.connect(lp); lp.connect(audioCtx.destination);
+  }
+  function playChime(freq) {
+    if (!audioCtx || muted) return;
+    const t = audioCtx.currentTime;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.6, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+    const o1 = audioCtx.createOscillator();
+    o1.type = 'sine'; o1.frequency.value = freq;
+    const o2 = audioCtx.createOscillator();
+    o2.type = 'triangle'; o2.frequency.value = freq * 2.01;
+    const g2 = audioCtx.createGain(); g2.gain.value = 0.35;
+    o1.connect(g); o2.connect(g2); g2.connect(g); g.connect(master);
+    o1.start(t); o2.start(t); o1.stop(t + 1.4); o2.stop(t + 1.4);
+  }
+  function playSparkleTune() {
+    if (!audioCtx || muted) return;
+    const idx = (Math.random() * (SCALE.length - 2)) | 0;
+    for (let i = 0; i < 3; i++) {
+      const f = SCALE[Math.min(idx + i, SCALE.length - 1)];
+      setTimeout(() => playChime(f), i * 70);
+    }
+  }
+  let lastTrailSound = 0;
+  function playPop() {
+    if (!audioCtx || muted) return;
+    const now = performance.now();
+    if (now - lastTrailSound < 110) return;
+    lastTrailSound = now;
+    playChime(pick(SCALE));
+  }
+
+  const sparkles = [];
+  const floaters = [];
+  const MAX_SPARKLES = 700;
+
+  class Sparkle {
+    constructor(x, y, o = {}) {
+      this.x = x; this.y = y;
+      const ang = rnd(TAU), spd = o.spd != null ? o.spd : rnd(60, 260);
+      this.vx = Math.cos(ang) * spd; this.vy = Math.sin(ang) * spd;
+      this.g = o.g != null ? o.g : 220;
+      this.life = 0; this.max = rnd(0.7, 1.5);
+      this.color = o.color || pick(COLORS);
+      this.size = o.size != null ? o.size : rnd(7, 16);
+      this.rot = rnd(TAU); this.spin = rnd(-8, 8);
+      this.star = Math.random() < 0.6;
+    }
+    update(dt) {
+      this.life += dt;
+      this.vy += this.g * dt; this.vx *= (1 - 1.6 * dt);
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      this.rot += this.spin * dt;
+    }
+    get dead() { return this.life >= this.max; }
+    draw() {
+      const p = this.life / this.max;
+      const a = p < 0.7 ? 1 : 1 - (p - 0.7) / 0.3;
+      const s = this.size * (0.5 + 0.5 * Math.sin(Math.min(p, 1) * Math.PI));
+      ctx.save();
+      ctx.globalAlpha = Math.max(a, 0);
+      ctx.translate(this.x, this.y); ctx.rotate(this.rot);
+      ctx.shadowColor = this.color; ctx.shadowBlur = 18;
+      ctx.fillStyle = this.color;
+      if (this.star) drawTwinkle(s);
+      else { ctx.beginPath(); ctx.arc(0, 0, s * 0.5, 0, TAU); ctx.fill(); }
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.arc(0, 0, s * 0.18, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+  }
+  function drawTwinkle(R) {
+    const r = R * 0.32;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const ang = i * Math.PI / 4;
+      const rad = (i % 2 === 0) ? R : r;
+      const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+
+  class Floater {
+    constructor(x, y) {
+      this.x = x; this.y = y;
+      this.emoji = pick(EMOJIS);
+      this.size = rnd(70, 130);
+      this.vx = rnd(-25, 25); this.vy = rnd(-55, -25);
+      this.life = 0; this.max = rnd(2.4, 3.6);
+      this.rot = rnd(-0.3, 0.3); this.spin = rnd(-1, 1);
+      this.phase = rnd(TAU);
+    }
+    update(dt) {
+      this.life += dt;
+      this.x += this.vx * dt + Math.sin(this.life * 3 + this.phase) * 18 * dt;
+      this.y += this.vy * dt; this.rot += this.spin * dt;
+    }
+    get dead() { return this.life >= this.max; }
+    draw() {
+      const p = this.life / this.max;
+      const pop = p < 0.18 ? easeOutBack(p / 0.18) : 1;
+      const a = p > 0.72 ? 1 - (p - 0.72) / 0.28 : 1;
+      ctx.save();
+      ctx.globalAlpha = Math.max(a, 0);
+      ctx.translate(this.x, this.y); ctx.rotate(this.rot); ctx.scale(pop, pop);
+      ctx.font = this.size + 'px "Apple Color Emoji","Segoe UI Emoji",serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(255,255,255,0.95)'; ctx.shadowBlur = 24;
+      ctx.fillText(this.emoji, 0, 0);
+      ctx.restore();
+    }
+  }
+  function easeOutBack(x) {
+    const c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+
+  function burst(x, y, big = true) {
+    const color = pick(COLORS);
+    const n = big ? 26 : 6;
+    for (let i = 0; i < n; i++) {
+      sparkles.push(new Sparkle(x, y, {
+        color: Math.random() < 0.5 ? color : pick(COLORS),
+        spd: big ? rnd(80, 320) : rnd(40, 120),
+        size: rnd(8, 18)
+      }));
+    }
+    if (sparkles.length > MAX_SPARKLES) sparkles.splice(0, sparkles.length - MAX_SPARKLES);
+    if (big) { floaters.push(new Floater(x, y)); playSparkleTune(); }
+  }
+  function trail(x, y) {
+    for (let i = 0; i < 3; i++) {
+      sparkles.push(new Sparkle(x + rnd(-8, 8), y + rnd(-8, 8), {
+        spd: rnd(10, 80), size: rnd(6, 13), g: 90
+      }));
+    }
+    if (sparkles.length > MAX_SPARKLES) sparkles.splice(0, sparkles.length - MAX_SPARKLES);
+    playPop();
+  }
+
+  let ambientTimer = 0;
+  function spawnAmbient() {
+    sparkles.push(new Sparkle(rnd(W), H + 20, {
+      spd: 0, g: -rnd(15, 40), size: rnd(6, 12), color: pick(COLORS)
+    }));
+  }
+
+  const pointers = new Map();
+  const hint = document.getElementById('hint');
+  let hintHidden = false;
+  function hideHint() {
+    if (hintHidden) return;
+    hintHidden = true;
+    hint.style.opacity = '0';
+    setTimeout(() => hint.remove(), 900);
+  }
+  function getPos(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function onDown(e) {
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    hideHint();
+    const p = getPos(e);
+    pointers.set(e.pointerId, p);
+    burst(p.x, p.y, true);
+  }
+  function onMove(e) {
+    const prev = pointers.get(e.pointerId);
+    if (!prev) return;
+    const p = getPos(e);
+    const dx = p.x - prev.x, dy = p.y - prev.y;
+    if (dx * dx + dy * dy > 90) { trail(p.x, p.y); pointers.set(e.pointerId, p); }
+  }
+  function onUp(e) { pointers.delete(e.pointerId); }
+
+  canvas.addEventListener('pointerdown', onDown);
+  canvas.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  const fsBtn = document.getElementById('fsBtn');
+  fsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const el = document.documentElement;
+    try {
+      if (!document.fullscreenElement) (el.requestFullscreen || el.webkitRequestFullscreen || function(){}).call(el);
+      else (document.exitFullscreen || document.webkitExitFullscreen || function(){}).call(document);
+    } catch (_) {}
+  });
+  const muteBtn = document.getElementById('muteBtn');
+  muteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    muted = !muted;
+    muteBtn.textContent = muted ? '🔇' : '🔊';
+  });
+  [fsBtn, muteBtn].forEach(b => b.addEventListener('pointerdown', e => e.stopPropagation()));
+
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05;
+
+    const hue = (now * 0.008) % 360;
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, `hsl(${hue}, 75%, 86%)`);
+    grad.addColorStop(0.5, `hsl(${(hue + 40) % 360}, 70%, 88%)`);
+    grad.addColorStop(1, `hsl(${(hue + 80) % 360}, 72%, 84%)`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+
+    ambientTimer += dt;
+    if (ambientTimer > 0.5) { ambientTimer = 0; spawnAmbient(); }
+
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i]; f.update(dt); f.draw();
+      if (f.dead) floaters.splice(i, 1);
+    }
+    for (let i = sparkles.length - 1; i >= 0; i--) {
+      const s = sparkles[i]; s.update(dt); s.draw();
+      if (s.dead || s.y < -40) sparkles.splice(i, 1);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
